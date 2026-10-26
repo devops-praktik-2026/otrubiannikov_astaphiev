@@ -1,13 +1,11 @@
-"""Точка входа сервиса заказов.
+"""Точка входа сервиса заказов."""
 
-Запуск вручную:
-    uvicorn orders.main:app --reload --port 8002
-"""
-
-from fastapi import FastAPI
-from pydantic import BaseModel
+from fastapi import Depends, FastAPI, HTTPException, status
+from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from orders.config import settings
+from orders.db import Base, get_session
 
 app = FastAPI(
     title="Сервис заказов",
@@ -16,14 +14,44 @@ app = FastAPI(
 )
 
 
-class HealthRead(BaseModel):
-    status: str
-    service: str
+class OrderModel(Base):
+    __tablename__ = "orders"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    account_id: Mapped[int]
+    item: Mapped[str]
+    quantity: Mapped[int]
 
 
-@app.get("/health", response_model=HealthRead, tags=["Служебное"], summary="Жив ли сервис")
-def health() -> HealthRead:
-    return HealthRead(status="ok", service=settings.service_name)
+class Order(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int | None = None
+    account_id: int = Field(gt=0)
+    item: str = Field(min_length=1)
+    quantity: int = Field(ge=1)
 
 
-# TODO Изменить description (пример задачи)
+@app.get("/health", tags=["Служебное"], summary="Жив ли сервис")
+def health() -> dict[str, str]:
+    return {"status": "ok", "service": settings.service_name}
+
+
+@app.post("/orders", response_model=Order, status_code=status.HTTP_201_CREATED)
+def create_order(payload: Order, session: Session = Depends(get_session)) -> OrderModel:
+    order = OrderModel(**payload.model_dump())
+    session.add(order)
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+@app.get("/orders/{order_id}", response_model=Order)
+def get_order(order_id: int, session: Session = Depends(get_session)) -> OrderModel:
+    order = session.get(OrderModel, order_id)
+    if order is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Заказ {order_id} не найден",
+        )
+    return order

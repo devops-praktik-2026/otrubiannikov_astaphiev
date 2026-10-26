@@ -13,6 +13,8 @@ class Settings(BaseSettings):
 
     service_name: str = "orders"
 
+    database_url: str = "sqlite:///./orders.db"
+
     # Куда ходить за проверкой клиента.
     accounts_url: str = "http://localhost:8001"
 
