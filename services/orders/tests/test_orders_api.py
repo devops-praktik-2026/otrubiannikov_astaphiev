@@ -12,20 +12,21 @@ from fastapi.testclient import TestClient
 
 from orders.main import app
 
-# ↓↓↓ Уберите эту строку на занятии 2 ↓↓↓
-pytest.skip("Реализуется на занятии 2: снимите пропуск", allow_module_level=True)
-
 client = TestClient(app)
 
 
-def test_create_order_returns_201():
-    payload = {"account_id": 1, "item": "Кофемолка", "quantity": 2}
+def test_read_created_order_returns_200_and_card(client: TestClient, order_payload: dict):
+    created_response = client.request(method = "POST", url="/orders", json=order_payload)
+    assert created_response.status_code == 201
+    created_order = created_response.json()
 
-    response = client.post("/orders", json=payload)
+    response = client.request(method = "GET", url=f"/orders/{created_order['id']}")
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["id"] > 0
-    assert body["account_id"] == payload["account_id"]
-    assert body["item"] == payload["item"]
-    assert body["quantity"] == payload["quantity"]
+    assert response.status_code == 200
+    assert response.json() == created_order
+
+def test_read_nonexistent_order_returns_404(client: TestClient):
+    response = client.request(method = "GET", url="/orders/999999")
+
+    assert response.status_code == 404
+    assert str(999999) in response.json()["detail"]
