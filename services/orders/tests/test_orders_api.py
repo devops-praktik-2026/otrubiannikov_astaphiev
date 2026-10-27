@@ -1,31 +1,56 @@
-"""Заведомо падающий тест
+"""Тесты запросов к сервису заказов."""
 
-СЕЙЧАС ОН ПРОПУСКАЕТСЯ. Снимите строку со skip ниже, запустите проверки
-и убедитесь, что тест падает. Это нормальное и правильное состояние:
-сначала появляется тест, который описывает нужное поведение, и только
-потом — код, который заставляет его пройти.
-
-"""
+from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
+from orders.db import Base, get_session
 from orders.main import app
 
-# ↓↓↓ Уберите эту строку на занятии 2 ↓↓↓
-pytest.skip("Реализуется на занятии 2: снимите пропуск", allow_module_level=True)
+engine = create_engine(
+    "sqlite://",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestSession = sessionmaker(bind=engine, expire_on_commit=False)
+Base.metadata.create_all(engine)
 
-client = TestClient(app)
+
+def override_get_session() -> Iterator[Session]:
+    with TestSession() as session:
+        yield session
 
 
-def test_create_order_returns_201():
-    payload = {"account_id": 1, "item": "Кофемолка", "quantity": 2}
+@pytest.fixture()
+def client() -> Iterator[TestClient]:
+    app.dependency_overrides[get_session] = override_get_session
+    with TestClient(app) as test_client:
+        yield test_client
+    app.dependency_overrides.clear()
 
-    response = client.post("/orders", json=payload)
 
-    assert response.status_code == 201
-    body = response.json()
-    assert body["id"] > 0
-    assert body["account_id"] == payload["account_id"]
-    assert body["item"] == payload["item"]
-    assert body["quantity"] == payload["quantity"]
+@pytest.fixture()
+def order_payload() -> dict:
+    return {"account_id": 1, "item": "Кофемолка", "quantity": 2}
+
+
+def test_read_created_order_returns_200_and_card(client: TestClient, order_payload: dict):
+    created_response = client.request(method="POST", url="/orders", json=order_payload)
+    assert created_response.status_code == 201
+    created_order = created_response.json()
+
+    response = client.request(method="GET", url=f"/orders/{created_order['id']}")
+
+    assert response.status_code == 200
+    assert response.json() == created_order
+
+
+def test_read_nonexistent_order_returns_404(client: TestClient):
+    response = client.request(method="GET", url="/orders/999999")
+
+    assert response.status_code == 404
+    assert str(999999) in response.json()["detail"]
