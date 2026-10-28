@@ -284,3 +284,4 @@ python3 scripts/check_env.py --docker
 | --- | --- |
 |     | ведущий |
 |     | второй |
+
