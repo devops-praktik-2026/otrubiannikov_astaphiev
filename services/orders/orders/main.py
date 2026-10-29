@@ -1,16 +1,28 @@
 """Точка входа сервиса заказов."""
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
+from orders.accounts_client import ensure_account_exists
 from orders.config import settings
-from orders.db import Base, get_session
+from orders.db import Base, engine, get_session
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    Base.metadata.create_all(bind=engine)
+    yield
+
 
 app = FastAPI(
     title="Сервис заказов",
     description="Заготовка.",
     version="0.1.0",
+    lifespan=lifespan,
 )
 
 
@@ -39,6 +51,7 @@ def health() -> dict[str, str]:
 
 @app.post("/orders", response_model=Order, status_code=status.HTTP_201_CREATED)
 def create_order(payload: Order, session: Session = Depends(get_session)) -> OrderModel:
+    ensure_account_exists(payload.account_id)
     order = OrderModel(**payload.model_dump())
     session.add(order)
     session.commit()

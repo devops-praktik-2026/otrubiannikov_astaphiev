@@ -2,6 +2,7 @@
 
 from collections.abc import Iterator
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
@@ -38,6 +39,15 @@ def order_payload() -> dict:
     return {"account_id": 1, "item": "Кофемолка", "quantity": 2}
 
 
+@pytest.fixture(autouse=True)
+def account_exists(monkeypatch: pytest.MonkeyPatch) -> None:
+    def successful_response(url: str, timeout: float) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        return httpx.Response(status_code=200, request=request)
+
+    monkeypatch.setattr("orders.accounts_client.httpx.get", successful_response)
+
+
 def test_read_created_order_returns_200_and_card(client: TestClient, order_payload: dict):
     created_response = client.request(method="POST", url="/orders", json=order_payload)
     assert created_response.status_code == 201
@@ -54,3 +64,20 @@ def test_read_nonexistent_order_returns_404(client: TestClient):
 
     assert response.status_code == 404
     assert str(999999) in response.json()["detail"]
+
+
+def test_create_order_for_nonexistent_account_returns_404(
+    client: TestClient,
+    order_payload: dict,
+    monkeypatch: pytest.MonkeyPatch,
+):
+    def not_found_response(url: str, timeout: float) -> httpx.Response:
+        request = httpx.Request("GET", url)
+        return httpx.Response(status_code=404, request=request)
+
+    monkeypatch.setattr("orders.accounts_client.httpx.get", not_found_response)
+
+    response = client.post("/orders", json=order_payload)
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "account 1 not found"

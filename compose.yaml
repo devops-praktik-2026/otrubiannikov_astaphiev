@@ -38,6 +38,7 @@ services:
     build: ./services/orders
     environment:
       ACCOUNTS_URL: http://accounts:8000
+      DATABASE_URL: sqlite:////tmp/orders.db
     depends_on:
       accounts:
         condition: service_healthy
